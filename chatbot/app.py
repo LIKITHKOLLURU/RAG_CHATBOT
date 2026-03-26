@@ -8,24 +8,29 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
-
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # -------------------------------
-# Load ENV Variables
+# Load ENV
 # -------------------------------
 load_dotenv()
 
 # -------------------------------
-# Streamlit UI
+# Page Config
 # -------------------------------
-st.set_page_config(page_title="Laptop Support AI Assistant")
-st.title("💻 Intelligent AI Assistant for Tech Support")
+st.set_page_config(
+    page_title="Laptop Support AI",
+    page_icon="💻",
+    layout="wide"
+)
+
+st.title("💻 Intelligent AI Laptop Support Assistant")
+st.caption("AI-powered enterprise laptop troubleshooting system")
 
 PDF_FOLDER = "D:\\Learnathon\\rawdocs"
 
 # -------------------------------
-# Load Knowledge Base
+# Knowledge Base
 # -------------------------------
 @st.cache_resource
 def load_knowledge_base():
@@ -34,9 +39,7 @@ def load_knowledge_base():
 
     for file in os.listdir(PDF_FOLDER):
         if file.endswith(".pdf"):
-            pdf_path = os.path.join(PDF_FOLDER, file)
-
-            loader = PyPDFLoader(pdf_path)
+            loader = PyPDFLoader(os.path.join(PDF_FOLDER, file))
             documents.extend(loader.load())
 
     splitter = RecursiveCharacterTextSplitter(
@@ -52,35 +55,32 @@ def load_knowledge_base():
 
     vectorstore = FAISS.from_documents(chunks, embeddings)
 
-    # ✅ Gemini LLM
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature=0.3
     )
 
     prompt = PromptTemplate.from_template("""
-    You are an enterprise laptop support assistant.
+You are an enterprise laptop support assistant.
 
-    Use the following retrieved context to answer the question accurately.
+Answer ONLY using the provided context.
 
-    Context:
-    {context}
+Context:
+{context}
 
-    Chat History:
-    {chat_history}
+Chat History:
+{chat_history}
 
-    Question:
-    {question}
+Question:
+{question}
 
-    Answer:
-    """)
-
+Answer:
+""")
 
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=vectorstore.as_retriever(),
         combine_docs_chain_kwargs={"prompt": prompt},
-        return_source_documents=True,
     )
 
     return qa_chain
@@ -91,28 +91,64 @@ qa_chain = load_knowledge_base()
 # -------------------------------
 # Chat Memory
 # -------------------------------
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 # -------------------------------
-# User Input
+# Sidebar
 # -------------------------------
-user_question = st.text_input("Describe the laptop issue:")
+with st.sidebar:
+    st.header("⚙️ Controls")
 
-if user_question:
+    if st.button("🗑 Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
 
-    result = qa_chain({
-        "question": user_question,
-        "chat_history": st.session_state.chat_history
-    })
-
-    st.session_state.chat_history.append(
-        (user_question, result["answer"])
+    st.markdown("---")
+    st.info(
+        "This assistant diagnoses laptop issues using enterprise PDF knowledge."
     )
 
 # -------------------------------
-# Display Chat
+# Display Previous Messages
 # -------------------------------
-for question, answer in st.session_state.chat_history:
-    st.write(f"**👨‍💻 You:** {question}")
-    st.write(f"**🤖 Assistant:** {answer}")
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# -------------------------------
+# Chat Input
+# -------------------------------
+user_prompt = st.chat_input("Describe your laptop issue...")
+
+if user_prompt:
+
+    # Show user message
+    st.session_state.messages.append(
+        {"role": "user", "content": user_prompt}
+    )
+
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
+
+    # Assistant response
+    with st.chat_message("assistant"):
+        with st.spinner("Diagnosing laptop issue... 🔍"):
+
+            chat_history = [
+                (m["content"], "")
+                for m in st.session_state.messages
+                if m["role"] == "user"
+            ]
+
+            result = qa_chain({
+                "question": user_prompt,
+                "chat_history": chat_history
+            })
+
+            response = result["answer"]
+            st.markdown(response)
+
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response}
+    )
